@@ -67,7 +67,7 @@
     </section>
 
     {{-- SEARCH & FILTER --}}
-    <section id="certifications" class="py-20 bg-white">
+    <section id="certifications" class="py-20 bg-white scroll-mt-[140px]">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
             {{-- Search --}}
@@ -131,16 +131,16 @@
             </div>
 
             {{-- PAGINATION (SSR fallback) --}}
-            <div class="text-center mt-10">
-            {{ $initial->onEachSide(1)->links() }}
-            </div>
+            <div class="mt-8 text-center text-sm text-slate-500" id="clientSummary"></div>
+            <div class="mt-4 flex justify-center gap-1" id="pagination"></div>
+
 
             {{-- Data untuk bootstrap JS (opsional) --}}
             <script>
             window.__CATS__ = @json($categories ?? []);
             </script>
         </div>
-        </section>
+    </section>
 
     {{-- CATEGORIES --}}
     <section id="categories" class="py-20 bg-gray-50">

@@ -6,7 +6,7 @@ const $$ = (s) => document.querySelectorAll(s)
 const esc = (x) => String(x ?? '')
   .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
   .replaceAll('"','&quot;').replaceAll("'",'&#039;')
-const debounce = (fn, ms=250) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms) }}
+const debounce = (fn, ms=150) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms) }}
 
 /* ==== state ==== */
 const state = {
@@ -34,33 +34,53 @@ function hydrate(){
   }catch{}
 }
 
-/* ==== API ==== */
-async function fetchFacets(){
-    const params = new URLSearchParams()
-    if (state.q) params.set('q', state.q)
-    if (state.category && state.category !== 'all') params.set('category', state.category)
-    for (const [k,v] of Object.entries(state.sub)) if (v && v !== 'all') params.set(k, v)
+/* ==== API (with cancellation) ==== */
+let listCtrl = null, facetCtrl = null;
 
-    const r = await fetch('/api/services/facets?'+params.toString(), { headers: { 'Accept':'application/json' } })
-    if(!r.ok) throw new Error('Gagal memuat facets')
-    return await r.json()
+function buildParams(includeSubs = true) {
+  const p = new URLSearchParams();
+  if (state.q) p.set('q', state.q);
+  if (state.category && state.category !== 'all') p.set('category', state.category);
+  if (includeSubs) for (const [k,v] of Object.entries(state.sub)) if (v && v !== 'all') p.set(k, v);
+  return p;
 }
 
-async function fetchList(){
-  const params = new URLSearchParams()
-  if (state.q) params.set('q', state.q)
-  if (state.category && state.category !== 'all') params.set('category', state.category)
-  params.set('page', String(state.page))
-  params.set('per_page', String(state.perPage))
-  for (const [k,v] of Object.entries(state.sub)) if (v && v !== 'all') params.set(k, v)
-
-  const r = await fetch('/api/services?'+params.toString(), { headers: { 'Accept':'application/json' } })
-  if(!r.ok) throw new Error('Gagal memuat data')
-  const json = await r.json()
-  state.total = json.meta.total
-  state.lastPage = json.meta.last_page
-  return json.data // array of services
+async function fetchFacets() {
+  if (facetCtrl) facetCtrl.abort();
+  facetCtrl = new AbortController();
+  const r = await fetch('/api/services/facets?' + buildParams().toString(), {
+    headers: { 'Accept': 'application/json' },
+    signal: facetCtrl.signal,
+  });
+  if (!r.ok) throw new Error('Gagal memuat facets');
+  return r.json();
 }
+
+async function fetchList() {
+  if (listCtrl) listCtrl.abort();
+  listCtrl = new AbortController();
+  const p = buildParams();
+  p.set('page', String(state.page));
+  p.set('per_page', String(state.perPage));
+
+  const r = await fetch('/api/services?' + p.toString(), {
+    headers: { 'Accept': 'application/json' },
+    signal: listCtrl.signal,
+  });
+  if (!r.ok) throw new Error('Gagal memuat data');
+  const json = await r.json();
+
+  // Ambil total terfilter; fallback aman
+  const total = json?.meta?.filtered_total ?? json?.meta?.total ?? json?.total ?? 0;
+  state.total = Number.isFinite(total) ? total : 0;
+
+  // Hitung lastPage secara deterministik dari total & perPage
+  const per = Math.max(1, state.perPage || 12);
+  state.lastPage = Math.max(1, Math.ceil(state.total / per));
+
+  return json.data ?? [];
+}
+
 
 /* ==== UI builders ==== */
 function buildCategories(categories=[]) {
@@ -92,7 +112,7 @@ function buildSubFilters(facets) {
   const wrap = $('#subWrap'); if (!wrap) return
   const groups = facets?.metadata_facets || {}
 
-  // Urutkan key: prioritas dulu, lalu alfabet (backup kalau backend tidak urut)
+  // Urutkan key: prioritas dulu, lalu alfabet
   const keys = Object.keys(groups).sort((a,b)=>{
     const pri = {'nama-akreditasi':-2, 'jenis-iso':-1}
     return (pri[a]??0)-(pri[b]??0) || a.localeCompare(b)
@@ -138,11 +158,25 @@ function buildSubFilters(facets) {
   `
 }
 
-
 function renderResultInfo(countOnPage){
-  const el = $('#resultCount'); if(!el) return
-  el.textContent = `Menampilkan ${countOnPage} dari ${state.total} hasil`
+  const { page, perPage, total } = state;
+
+  const first = total ? (page - 1) * perPage + 1 : 0;
+  const last  = total ? Math.min(first + (countOnPage || 0) - 1, total) : 0;
+
+  // badge/teks di area filter (atas)
+  const top = $('#resultCount');
+  if (top) top.textContent = total
+    ? `Menampilkan ${countOnPage} dari ${total} hasil`
+    : `Tidak ada hasil`;
+
+  // summary di bawah list (bottom)
+  const bottom = $('#clientSummary');
+  if (bottom) bottom.textContent = total
+    ? `Menampilkan ${first}–${last} dari ${total} hasil`
+    : `Tidak ada hasil`;
 }
+
 
 function renderGrid(items){
   const grid = $('#certificationGrid'); if(!grid) return
@@ -173,27 +207,84 @@ function renderGrid(items){
 }
 
 function renderPagination(){
-  const el = $('#pagination'); if(!el) return
-  const cur = state.page, total = state.lastPage
+  const el = $('#pagination'); if(!el) return;
+  const cur = state.page, total = state.lastPage;
+
+  if (total <= 1) { el.innerHTML = ''; return; }
+
   const btn = (label, page, disabled=false, active=false) => `
     <button class="min-w-9 h-9 px-3 rounded-md border ${active?'bg-blue-600 text-white border-blue-600':'border-slate-300 hover:border-slate-400'} ${disabled?'opacity-50 cursor-not-allowed':''}"
-      data-page="${disabled?'':page}">${esc(label)}</button>`
-  const parts = []
-  parts.push(btn('‹', cur-1, cur===1))
-  const maxBtns = 7
-  let pages = []
-  if (total <= maxBtns) pages = Array.from({length: total}, (_,i)=>i+1)
-  else {
-    const start = Math.max(1, cur-2)
-    const end = Math.min(total, start+4)
-    pages.push(1); if(start>2) pages.push('…')
-    for(let p=start;p<=end;p++) pages.push(p)
-    if(end<total-1) pages.push('…'); pages.push(total)
+      data-page="${disabled?'':page}">${esc(label)}</button>`;
+
+  const parts = [];
+  parts.push(btn('‹', cur-1, cur===1));
+
+  const maxBtns = 7;
+  const pages = [];
+
+  // helper: tambahkan angka unik (hindari duplikat berurutan)
+  const add = (x) => { if (pages[pages.length-1] !== x) pages.push(x); };
+
+  if (total <= maxBtns) {
+    for (let p=1; p<=total; p++) add(p);
+  } else {
+    const start = Math.max(1, cur - 2);
+    const end   = Math.min(total, cur + 2);
+
+    add(1);                          // selalu tampilkan halaman pertama
+    if (start > 2) add('…');         // elipsis kiri
+
+    for (let p = Math.max(2, start); p <= Math.min(end, total-1); p++) add(p);
+
+    if (end < total - 1) add('…');   // elipsis kanan
+    add(total);                      // selalu tampilkan halaman terakhir
   }
-  for (const p of pages) parts.push(p==='…' ? `<span class="px-2 text-slate-400">…</span>` : btn(String(p), p, false, p===cur))
-  parts.push(btn('›', cur+1, cur===total))
-  el.innerHTML = parts.join('')
+
+  for (const p of pages) {
+    parts.push(
+      p === '…'
+        ? `<span class="px-2 text-slate-400">…</span>`
+        : btn(String(p), p, false, p===cur)
+    );
+  }
+
+  parts.push(btn('›', cur+1, cur===total));
+  el.innerHTML = parts.join('');
 }
+
+
+function normalizePerPageSelect() {
+  const sel = document.getElementById('perPageSelect');
+  if (!sel) return;
+
+  const total = state.total;
+  // Sembunyikan jika tidak perlu
+  sel.closest('div')?.classList.toggle('hidden', total <= 1);
+
+  const DEFAULTS = [6, 9, 12, 18, 24];
+
+  // target perPage = min(perPage, total) tapi minimal 1
+  let target = Math.max(1, Math.min(state.perPage || 12, total || 1));
+
+  // kalau total > max default dan user pilih lebih besar, biarkan
+  // kalau total < min default (6), izinkan opsi "total" biar terasa mengikuti hasil
+  const mustInject = total > 0 && !DEFAULTS.includes(target);
+
+  // rebuild options hanya jika perlu
+  const build = (extra) => {
+    const list = [...DEFAULTS];
+    if (extra && !list.includes(extra)) list.unshift(extra); // taruh di depan biar terlihat
+    sel.innerHTML = list.map(n => `<option value="${n}">${n}</option>`).join('');
+  };
+
+  build(mustInject ? target : null);
+
+  // set value + update state bila berubah
+  const prev = state.perPage;
+  sel.value = String(target);
+  if (prev !== target) state.perPage = target;
+}
+
 
 /* ==== Active filter chips ==== */
 function renderActive(){
@@ -207,118 +298,142 @@ function renderActive(){
                               : `<span class="text-slate-400 text-sm">Tidak ada filter.</span>`
 }
 
-/* ==== Orkestrasi ==== */
-async function refresh(){
-  const items = await fetchList()
-  renderGrid(items)
-  renderPagination()
-  renderResultInfo(items.length)
-  renderActive()
-  persist()
+/* ==== Orkestrasi (parallel + cancel + seq guard) ==== */
+let seq = 0;
+
+async function refreshCombined({ withFacets = true } = {}) {
+  const cur = ++seq;
+
+  const grid = $('#certificationGrid');
+  if (grid) grid.innerHTML = '<div class="col-span-full animate-pulse text-slate-400">Memuat…</div>';
+
+  try {
+    const tasks = [fetchList()];
+    if (withFacets) tasks.push(fetchFacets());
+    const [items, facets] = await Promise.all(tasks);
+
+    if (cur !== seq) return; // ada refresh yang lebih baru
+
+    if (withFacets && facets) buildSubFilters(facets);
+    renderGrid(items);
+    renderPagination();
+    normalizePerPageSelect();
+    renderResultInfo(items.length);
+    renderActive();
+    persist();
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    console.error(e);
+    if (grid) grid.innerHTML = `<div class="col-span-full text-center text-red-600">${esc(e.message||'Gagal memuat')}</div>`;
+  }
 }
 
-async function refreshFacets(){
-  const facets = await fetchFacets()
-  buildSubFilters(facets)
-}
+/* ==== Events ==== */
+const debouncedSearch = debounce((v) => {
+  state.q = v.trim();
+  state.page = 1;
+  refreshCombined({ withFacets: true });
+}, 150);
 
 function attachEvents(facets){
-    $('#searchInput')?.addEventListener('input', debounce(async (e)=>{
-    state.q = e.target.value.trim()
-    state.page = 1
-    await refreshFacets()
-    await refresh()
-    }, 250))
-    $('#catWrap')?.addEventListener('change', async (e)=>{
+  // Inisialisasi kategori+sub dari SSR/first load
+  const cats = (window.__CATS__ || facets.categories || []);
+  buildCategories(cats);
+  buildSubFilters(facets);
+
+  $('#searchInput')?.addEventListener('input', (e)=>{
+    debouncedSearch(e.target.value);
+  });
+
+  $('#catWrap')?.addEventListener('change', (e)=>{
     if (e.target.id === 'catSelect') {
-        state.category = e.target.value || 'all'
-        state.page = 1
-        // reset sub-filter saat ganti kategori biar fokus
-        state.sub = {}
-        await refreshFacets()
-        await refresh()
-        return
+      state.category = e.target.value || 'all';
+      state.sub = {};
+      state.page = 1;
+      refreshCombined({ withFacets: true }); // domain berubah → facets ikut
+      return;
     }
     if (e.target.id === 'perPageSelect') {
-        const n = parseInt(e.target.value,10); if(!isNaN(n)) state.perPage = n
-        state.page = 1
-        await refresh()
-        return
+      const n = parseInt(e.target.value,10);
+      if (!isNaN(n)) state.perPage = n;
+      state.page = 1;
+      refreshCombined({ withFacets: false }); // facets tidak perlu
+      return;
     }
-    })
-  $('#resetFiltersBtn')?.addEventListener('click', ()=>{ state.q=''; state.category='all'; state.sub={}; state.page=1; const s=$('#searchInput'); if(s) s.value=''; refresh() })
-    $('#subWrap')?.addEventListener('change', async (e)=>{
-    const sel = e.target.closest('select[data-sub]'); if(!sel) return
-    const key = sel.getAttribute('data-sub'); state.sub[key] = sel.value || 'all'
-    state.page = 1
-    await refreshFacets()
-    await refresh()
-    })
-    $('#subWrap')?.addEventListener('click', (e)=>{
-    const btn = e.target.closest('#toggleMoreFilters'); if (!btn) return
-    const panel = document.getElementById('moreFilters')
-    if (panel) panel.classList.toggle('hidden')
-    })
+  });
 
-    $('#activeFilters')?.addEventListener('click', async (e)=>{
+  $('#subWrap')?.addEventListener('change', (e)=>{
+    const sel = e.target.closest('select[data-sub]'); if(!sel) return
+    const key = sel.getAttribute('data-sub');
+    state.sub[key] = sel.value || 'all';
+    state.page = 1;
+    refreshCombined({ withFacets: true });
+  });
+
+  $('#subWrap')?.addEventListener('click', (e)=>{
+    const btn = e.target.closest('#toggleMoreFilters'); if (!btn) return
+    const panel = document.getElementById('moreFilters');
+    if (panel) panel.classList.toggle('hidden');
+  });
+
+  $('#activeFilters')?.addEventListener('click', (e)=>{
     const btn=e.target.closest('button[data-clear],#clearAllFilters'); if(!btn) return
     if (btn.id==='clearAllFilters'){
-        state.q=''; state.category='all'; state.sub={}; state.page=1
-        const s=$('#searchInput'); if(s) s.value=''
-        await refreshFacets()
-        await refresh()
-        return
+      state.q=''; state.category='all'; state.sub={}; state.page=1
+      const s=$('#searchInput'); if(s) s.value=''
+      refreshCombined({ withFacets: true });
+      return;
     }
-    const key=btn.getAttribute('data-clear')
+    const key=btn.getAttribute('data-clear');
     if(key==='q'){ state.q=''; const s=$('#searchInput'); if(s) s.value='' }
     else if(key==='category'){ state.category='all'; state.sub={} }
     else if(key.startsWith('sub:')){ const k=key.split(':')[1]; state.sub[k]='all' }
-    state.page=1
-    await refreshFacets()
-    await refresh()
-    })
+    state.page=1;
+    refreshCombined({ withFacets: true });
+  });
+
   $('#pagination')?.addEventListener('click',(e)=>{
     const b=e.target.closest('button[data-page]'); if(!b) return
     const p=parseInt(b.getAttribute('data-page')||'',10)
-    if(!isNaN(p)){ state.page=p; refresh(); document.querySelector('#certificationGrid')?.scrollIntoView({behavior:'smooth',block:'start'}) }
-  })
+    if(!isNaN(p)){
+      state.page=p;
+      refreshCombined({ withFacets: false }); // paging tidak perlu facets
+      document.querySelector('#certificationGrid')?.scrollIntoView({behavior:'smooth',block:'start'});
+    }
+  });
 
-  // Inisialisasi kategori dari SSR kalau ada
-  const cats = (window.__CATS__ || facets.categories || [])
-  buildCategories(cats)
-  buildSubFilters(facets)
-
-  // Smooth scroll untuk tombol CTA yang punya data-scroll
-    document.addEventListener('click', (e)=>{
+  // Smooth scroll tombol CTA
+  document.addEventListener('click', (e)=>{
     const btn = e.target.closest('[data-scroll]')
     if(!btn) return
     const sel = btn.getAttribute('data-scroll')
     const target = document.querySelector(sel)
     if (target) { e.preventDefault(); target.scrollIntoView({behavior:'smooth', block:'start'}) }
-    })
+  });
 
-    // Toggle mobile menu (sesuai id di Blade-mu)
-    const mbtn = document.getElementById('mobile-menu-btn')
-    const mnav = document.getElementById('mobile-menu')
-    if (mbtn && mnav) {
+  // Toggle mobile menu
+  const mbtn = document.getElementById('mobile-menu-btn')
+  const mnav = document.getElementById('mobile-menu')
+  if (mbtn && mnav) {
     mbtn.addEventListener('click', ()=> mnav.classList.toggle('hidden'))
-    // klik link di mobile menu → auto-hide
     mnav.addEventListener('click', (e)=>{
-        if (e.target.closest('a')) mnav.classList.add('hidden')
+      if (e.target.closest('a')) mnav.classList.add('hidden')
     })
-    }
-
+  }
 }
 
 /* ==== Boot ==== */
 document.addEventListener('DOMContentLoaded', async ()=>{
   try{
-    hydrate()
-    const facets = await fetchFacets()
-    attachEvents(facets)
-    await refresh()
+    hydrate();
+    const initialFacets = await fetchFacets(); // pertama kali perlu facets
+    attachEvents(initialFacets);
+    refreshCombined({ withFacets: false }); // list pertama; facets sudah ada
   }catch(err){
     console.error(err)
-    const grid = $('#certificationGrid'); if(grid) grid.innerHTML = `<div class="col-span-full text-center text-red-600">${esc(err.message||'Gagal memuat')}</div>`
+    const grid = $('#certificationGrid');
+    if(grid) grid.innerHTML = `<div class="col-span-full text-center text-red-600">${esc(err.message||'Gagal memuat')}</div>`
   }
 })
+
+
