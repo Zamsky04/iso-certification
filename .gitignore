@@ -1,0 +1,43 @@
+# ==========================================
+# Laravel + Tailwind + Vite .gitignore
+# ==========================================
+
+# OS / Editor
+*.log
+.DS_Store
+Thumbs.db
+/.idea
+/.vscode
+/.fleet
+/.nova
+/.zed
+
+# PHP / Composer
+/vendor
+/auth.json
+/phpactor.json
+.phpunit.result.cache
+
+# Node / NPM / Vite
+/node_modules
+/public/build
+/public/hot
+
+# Laravel Environment
+.env
+.env.*
+!.env.example
+
+# Laravel Storage
+/storage/*.key
+/storage/logs/*
+/storage/framework/*
+/storage/pail
+/public/storage
+
+# Laravel Cache
+/bootstrap/cache/*.php
+
+# Homestead / Vagrant
+Homestead.json
+Homestead.yaml
