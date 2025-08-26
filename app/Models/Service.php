@@ -25,7 +25,7 @@ class Service extends Model
     {
         static::saving(function (self $m) {
             if (empty($m->slug) && !empty($m->title)) {
-                $m->slug = Str::slug($m->title);
+                $m->slug = Str::limit(Str::slug($m->title), 191, '');
             }
         });
     }
@@ -35,13 +35,30 @@ class Service extends Model
     {
         $term = trim((string)$term);
         if ($term === '') return $q;
+
+        $driver = $q->getModel()->getConnection()->getDriverName();
+        $len    = mb_strlen($term);
+
+        if ($driver === 'mysql' && $len >= 4) {
+            $q->selectRaw(
+                "services.*, MATCH(title, short_description, description) AGAINST (? IN BOOLEAN MODE) AS _score",
+                [$term]
+            )->whereRaw(
+                "MATCH(title, short_description, description) AGAINST (? IN BOOLEAN MODE)",
+                [$term]
+            )->orderByDesc('_score');
+            return $q;
+        }
+
         return $q->where(function($w) use ($term) {
-            $w->where('title', 'like', "%{$term}%")
-                ->orWhere('description', 'like', "%{$term}%")
-                ->orWhere('short_description', 'like', "%{$term}%");
+            $like = '%'.$term.'%';
+            $w->where('title', 'like', $like)
+            ->orWhere('short_description', 'like', $like)
+            ->orWhere('description', 'like', $like);
         });
-        // Jika pakai FULLTEXT: ->whereFullText(['title','description'], $term);
     }
+
+
 
     /** Scope filter kategori */
     public function scopeCategory(Builder $q, ?string $category): Builder

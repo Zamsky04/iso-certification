@@ -38,8 +38,28 @@
 .hover-lift { transition: transform .3s ease, box-shadow .3s ease; }
 .hover-lift:hover { transform: translateY(-8px); box-shadow: 0 20px 40px rgba(0,0,0,.1); }
 
-.anim-in { animation: fadeIn .6s ease-out both; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+/* ===== Animations: lebih halus + dukung motion-reduce ===== */
+.anim-in      { animation: fade-in .5s ease-out both; }
+.anim-in-up   { animation: fade-up .6s cubic-bezier(.22,.61,.36,1) both; }
+.anim-stagger > * { animation: fade-up .6s cubic-bezier(.22,.61,.36,1) both; }
+.anim-stagger > *:nth-child(1){ animation-delay:.05s }
+.anim-stagger > *:nth-child(2){ animation-delay:.10s }
+.anim-stagger > *:nth-child(3){ animation-delay:.15s }
+.anim-stagger > *:nth-child(4){ animation-delay:.20s }
+@keyframes fade-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+@keyframes fade-up { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:none} }
+@media (prefers-reduced-motion: reduce) {
+  .anim-in, .anim-in-up, .anim-stagger > * { animation: none !important }
+}
+
+/* Hover-lift lebih lembut di mobile */
+.hover-lift { transition: transform .25s ease, box-shadow .25s ease; }
+@media (hover:hover){
+  .hover-lift:hover { transform: translateY(-6px); box-shadow: 0 18px 36px rgba(0,0,0,.08); }
+}
+
+/* Anchor offset supaya scroll berhenti pas di bawah header */
+.anchor { scroll-margin-top: 6rem; }
 
 .search-glow:focus { box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
 

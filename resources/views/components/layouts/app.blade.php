@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="services-json" content="{{ url('/api/services.json') }}">
     <title>{{ $title ?? 'Sertifikasi & ISO' }}</title>
+    @stack('head')
 
     {{-- Vite assets --}}
     @vite(['resources/css/app.css','resources/js/app.js'])
