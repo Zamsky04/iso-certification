@@ -30,9 +30,13 @@ class ServiceController extends Controller
         // Facets untuk SSR awal (opsional, sisanya dari API)
         $categories = Service::query()->distinct()->pluck('category')->filter()->values();
 
+    // Kartu kategori dinamis:
+    $catCards = $this->buildCategoryCards();
+
         return view('certifications.index', [
             'initial'     => $paginated,   // SSR grid page-1 -> crawlable
             'categories'  => $categories,
+            'catCards'    => $catCards,
             'title'       => 'ISO Certification Hub - Platform Sertifikasi ISO Terpercaya',
             'description' => 'Temukan dan dapatkan sertifikasi ISO sesuai kebutuhan bisnis Anda.',
         ]);
@@ -200,4 +204,85 @@ class ServiceController extends Controller
             ->keys()
             ->values();
     }
+
+    private function buildCategoryCards(): array
+{
+    // gunakan path "$.\"key-dengan-strip\"" untuk JSON_EXTRACT
+    $sql = "
+        SUM(CASE
+              WHEN JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"jenis-iso\"')) IS NOT NULL
+               AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"nama-akreditasi\"')) LIKE ?
+            THEN 1 ELSE 0 END) AS iso_kan,
+
+        SUM(CASE
+              WHEN JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"jenis-iso\"')) IS NOT NULL
+               AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"nama-akreditasi\"')) LIKE ?
+            THEN 1 ELSE 0 END) AS iso_iaf,
+
+        SUM(CASE
+              WHEN JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"jenis-iso\"')) IS NOT NULL
+               AND (
+                    JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"nama-akreditasi\"')) LIKE ?
+                 OR JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"nama-akreditasi\"')) LIKE ?
+               )
+            THEN 1 ELSE 0 END) AS iso_non_iaf,
+
+        SUM(CASE
+              WHEN JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"jenis-iso\"')) IS NOT NULL
+               AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.\"nama-akreditasi\"')) LIKE ?
+            THEN 1 ELSE 0 END) AS iso_non_acc,
+
+        SUM(CASE
+              WHEN (category LIKE ? OR category LIKE ?)
+            THEN 1 ELSE 0 END) AS skk_bnsp
+    ";
+
+    $bindings = [
+        '%KAN%',          // iso_kan
+        '%IAF%',          // iso_iaf
+        '%Non IAF%',      // iso_non_iaf (1)
+        '%IDCAB%',        // iso_non_iaf (2)
+        '%Non Akreditasi%', // iso_non_acc
+        '%skk%', '%bnsp%',  // skk_bnsp
+    ];
+
+    $row = Service::query()->selectRaw($sql, $bindings)->first();
+
+    $cards = [
+        [
+            'key'=>'iso-kan','icon'=>'fa-certificate','color'=>'blue',
+            'title'=>'ISO Akreditasi KAN','desc'=>'Sertifikasi ISO diakui nasional oleh KAN',
+            'count'=>(int)$row->iso_kan,
+            'link'=>url('/sertifikasi').'?category=iso&nama-akreditasi=KAN#certifications',
+        ],
+        [
+            'key'=>'iso-iaf','icon'=>'fa-globe','color'=>'green',
+            'title'=>'ISO Akreditasi Internasional (IAF)','desc'=>'Diakui asosiasi internasional IAF',
+            'count'=>(int)$row->iso_iaf,
+            'link'=>url('/sertifikasi').'?category=iso&nama-akreditasi=IAF#certifications',
+        ],
+        [
+            'key'=>'iso-non-iaf','icon'=>'fa-shield-alt','color'=>'orange',
+            'title'=>'ISO Non-IAF / IDCAB','desc'=>'Akreditasi internasional non-IAF (IDCAB)',
+            'count'=>(int)$row->iso_non_iaf,
+            'link'=>url('/sertifikasi').'?category=iso&nama-akreditasi=Non%20IAF#certifications',
+        ],
+        [
+            'key'=>'iso-non-acc','icon'=>'fa-lock','color'=>'slate',
+            'title'=>'ISO Non Akreditasi','desc'=>'Sertifikasi ISO tanpa akreditasi resmi',
+            'count'=>(int)$row->iso_non_acc,
+            'link'=>url('/sertifikasi').'?category=iso&nama-akreditasi=Non%20Akreditasi#certifications',
+        ],
+        [
+            'key'=>'skk-bnsp','icon'=>'fa-hard-hat','color'=>'red',
+            'title'=>'SKK BNSP','desc'=>'Sertifikat Kompetensi Kerja (BNSP)',
+            'count'=>(int)$row->skk_bnsp,
+            'link'=>url('/sertifikasi').'?category=skk%20bnsp#certifications',
+        ],
+    ];
+
+    usort($cards, fn($a,$b)=>$b['count'] <=> $a['count']);
+    return array_slice($cards, 0, 4);
+}
+
 }

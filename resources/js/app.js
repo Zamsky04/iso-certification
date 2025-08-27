@@ -404,7 +404,7 @@ function attachEvents(facets){
   $('#catWrap')?.addEventListener('change', (e)=>{
     if (e.target.id === 'catSelect') {
       state.category = e.target.value || 'all';
-    //   state.sub = {};
+      state.sub = {};
       state.page = 1;
       refreshCombined({ withFacets: true }); // domain berubah → facets ikut
       return;
@@ -560,5 +560,4 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(grid) grid.innerHTML = `<div class="col-span-full text-center text-red-600">${esc(err.message||'Gagal memuat')}</div>`
   }
 })
-
 

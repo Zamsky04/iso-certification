@@ -13,7 +13,6 @@ class ServiceFilterRequest extends FormRequest
             'category'   => ['nullable','string','max:100'],
             'page'       => ['nullable','integer','min:1'],
             'per_page'   => ['nullable','integer','in:6,9,12,18,24'],
-            // meta filters: terima apapun (string/satu nilai)
         ];
     }
 
