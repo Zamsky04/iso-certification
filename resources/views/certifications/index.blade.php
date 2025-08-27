@@ -66,114 +66,149 @@
         </div>
     </section>
 
-    {{-- SEARCH & FILTER --}}
-    <section id="certifications" class="py-20 bg-white scroll-mt-[140px]">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    {{-- file: index.blade.php --}}
 
-            {{-- Search --}}
-            <div class="max-w-4xl mx-auto mb-12">
-            <div class="relative">
-                <input id="searchInput" type="search" placeholder="Cari ISO 9001, KAN, IAF, ..."
-                class="w-full px-5 py-3 pl-12 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:outline-none">
-                <svg class="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" viewBox="0 0 24 24" fill="none">
-                <path d="M21 21l-4.35-4.35M10 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-            </div>
-            </div>
+{{-- SEARCH & FILTER --}}
+<section id="certifications" class="py-20 bg-white scroll-mt-[80px]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-4 lg:gap-8">
 
-            {{-- Panel filter --}}
-            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 sticky top-4 z-20">
-            <div class="grid gap-5">
-                <div>
-                <div class="text-xs font-semibold text-slate-500 mb-2">Filter Aktif</div>
-                <div id="activeFilters" class="flex flex-wrap gap-2"></div>
-                </div>
+            {{-- ======================================================= --}}
+            {{-- KIRI: SIDEBAR FILTER (YANG DIPERBARUI) --}}
+            {{-- ======================================================= --}}
+            <div class="lg:col-span-1">
+                <div class="sticky top-20 space-y-6">
+                    {{-- Panel Filter Aktif --}}
+                    <div class="bg-white border border-slate-200 rounded-xl p-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-sm font-semibold text-slate-800">Filter Aktif</h3>
+                            <button id="clearAllFilters" class="text-xs font-semibold text-blue-600 hover:underline">
+                                Bersihkan Semua
+                            </button>
+                        </div>
+                        <div id="activeFilters" class="flex flex-wrap gap-2">
+                            {{-- Chip filter aktif akan muncul di sini via JS --}}
+                            <span class="text-slate-400 text-sm">Tidak ada filter.</span>
+                        </div>
+                    </div>
 
-                <div>
-                <div class="text-xs font-semibold text-slate-500 mb-2">Kategori</div>
-                <div id="catWrap"></div>
-                </div>
+                    {{-- Panel Filter Utama dengan Accordion --}}
+                    <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
 
-                <div>
-                <div class="text-xs font-semibold text-slate-500 mb-2">Detail</div>
-                <div id="subWrap"></div>
-                </div>
+                        {{-- Filter Kategori (Selalu Terbuka) --}}
+                        <div class="space-y-1">
+                            <label for="catSelect" class="text-sm font-semibold text-slate-800">Kategori</label>
+                            <div id="catWrap">
+                                {{-- Select Kategori akan dirender oleh JS di sini --}}
+                            </div>
+                        </div>
 
-                <div class="flex items-center gap-3">
-                <div id="resultCount" class="text-sm text-slate-600"></div>
-                <button id="resetFiltersBtn" class="ml-auto px-3 py-2 text-sm rounded-md border border-slate-300 hover:border-slate-400">Reset</button>
+                        {{-- Wrapper untuk Sub-Filter yang akan menjadi Accordion --}}
+                        <div id="subWrap" class="space-y-2 border-t border-slate-200 pt-4">
+                            {{-- Accordion akan dirender oleh JS di sini --}}
+                        </div>
+                    </div>
                 </div>
-            </div>
-            </div>
-
-            {{-- GRID (SSR page-1 → crawlable). JS akan meng-overwrite saat interaksi) --}}
-            <div id="certificationGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-            @foreach($initial as $c)
-                <article class="group bg-white rounded-xl border border-slate-200 p-5">
-                <div class="text-[11px] font-semibold uppercase tracking-wider text-blue-700">
-                    {{ $c->metadata['jenis-iso'] ?? 'ISO' }}
-                </div>
-                <h3 class="mt-1 text-lg md:text-xl font-bold text-slate-900 leading-snug">
-                    <a href="{{ route('certifications.show', $c) }}" class="hover:underline">{{ $c->title }}</a>
-                </h3>
-                <p class="mt-2 text-sm text-slate-600 line-clamp-3">{{ $c->short_description ?? \Illuminate\Support\Str::limit($c->description, 140) }}</p>
-                <div class="mt-4 flex flex-wrap gap-2 text-xs">
-                    @if($c->category)<span class="px-2 py-1 rounded-full bg-slate-100 text-slate-700">#{{ $c->category }}</span>@endif
-                    @if(($c->metadata['nama-akreditasi'] ?? '') !== '')
-                    <span class="px-2 py-1 rounded-full bg-slate-100 text-slate-700">{{ $c->metadata['nama-akreditasi'] }}</span>
-                    @endif
-                </div>
-                <div class="mt-5 flex items-center justify-end">
-                    <a href="{{ route('certifications.show', $c) }}" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Detail</a>
-                </div>
-                </article>
-            @endforeach
             </div>
 
-            {{-- PAGINATION (SSR fallback) --}}
-            <div class="mt-8 text-center text-sm text-slate-500" id="clientSummary"></div>
-            <div class="mt-4 flex justify-center gap-1" id="pagination"></div>
 
+            {{-- ======================================================= --}}
+            {{-- KANAN: KONTEN UTAMA (YANG DIPERBARUI) --}}
+            {{-- ======================================================= --}}
+            <div class="lg:col-span-3 mt-8 lg:mt-0">
+                {{-- Search Bar --}}
+                <div class="relative mb-6">
+                    <input id="searchInput" type="search" placeholder="Cari ISO 9001, KAN, IAF, ..."
+                    class="w-full px-5 py-3 pl-12 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:outline-none">
+                    <svg class="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" viewBox="0 0 24 24" fill="none">
+                        <path d="M21 21l-4.35-4.35M10 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
 
-            {{-- Data untuk bootstrap JS (opsional) --}}
-            <script>
-            window.__CATS__ = @json($categories ?? []);
-            </script>
+                {{-- Bar Info Hasil & Kontrol "Per Halaman" --}}
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-4 gap-3">
+                    <div id="resultCount" class="text-sm text-slate-600 font-medium">
+                        {{-- Jumlah hasil akan muncul di sini --}}
+                    </div>
+                    <div id="perPageWrap" class="flex items-center gap-2">
+                        {{-- Select "Per Halaman" akan dirender oleh JS di sini --}}
+                    </div>
+                </div>
+
+                {{-- Grid Hasil --}}
+                <div id="certificationGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
+                    @foreach($initial as $c)
+                        <article class="group bg-white rounded-xl border border-slate-200 p-5">
+                            <div class="text-[11px] font-semibold uppercase tracking-wider text-blue-700">
+                                {{ $c->metadata['jenis-iso'] ?? 'ISO' }}
+                            </div>
+                            <h3 class="mt-1 text-lg md:text-xl font-bold text-slate-900 leading-snug">
+                                <a href="{{ route('certifications.show', $c) }}" class="hover:underline">{{ $c->title }}</a>
+                            </h3>
+                            <p class="mt-2 text-sm text-slate-600 line-clamp-3">{{ $c->short_description ?? \Illuminate\Support\Str::limit($c->description, 140) }}</p>
+                            <div class="mt-4 flex flex-wrap gap-2 text-xs">
+                                @if($c->category)<span class="px-2 py-1 rounded-full bg-slate-100 text-slate-700">#{{ $c->category }}</span>@endif
+                                @if(($c->metadata['nama-akreditasi'] ?? '') !== '')
+                                <span class="px-2 py-1 rounded-full bg-slate-100 text-slate-700">{{ $c->metadata['nama-akreditasi'] }}</span>
+                                @endif
+                            </div>
+                            <div class="mt-5 flex items-center justify-end">
+                                <a href="{{ route('certifications.show', $c) }}" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Detail</a>
+                            </div>
+                        </article>
+                    @endforeach
+                </div>
+
+                {{-- Pagination --}}
+                <div class="mt-8 text-center text-sm text-slate-500" id="clientSummary"></div>
+                <div class="mt-4 flex justify-center gap-1" id="pagination"></div>
+            </div>
         </div>
-    </section>
+
+        {{-- ... script window.__CATS__ ... --}}
+        <script>
+        window.__CATS__ = @json($categories ?? []);
+        </script>
+    </div>
+</section>
 
     {{-- CATEGORIES --}}
     <section id="categories" class="py-20 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center mb-16">
-                <h2 class="text-4xl font-bold text-gray-800 mb-4">Kategori Sertifikasi Populer</h2>
-                <p class="text-lg text-gray-600 max-w-2xl mx-auto">
-                    Jelajahi kategori berdasarkan industri dan kebutuhan spesifik.
-                </p>
+            <h2 class="text-4xl font-bold text-gray-800 mb-4">Kategori Sertifikasi Populer</h2>
+            <p class="text-lg text-gray-600 max-w-2xl mx-auto">
+                Jelajahi kategori berdasarkan akreditasi dan jenis sertifikasi.
+            </p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            @foreach($catCards as $c)
                 @php
-                    $cats = [
-                        ['icon'=>'fa-cogs','color'=>'blue','title'=>'Quality Management','desc'=>'Standar manajemen kualitas untuk efisiensi operasional','count'=>'25+ Sertifikasi'],
-                        ['icon'=>'fa-leaf','color'=>'green','title'=>'Environmental','desc'=>'Manajemen lingkungan & keberlanjutan','count'=>'18+ Sertifikasi'],
-                        ['icon'=>'fa-shield-alt','color'=>'red','title'=>'Safety & Health','desc'=>'K3 internasional untuk keselamatan kerja','count'=>'22+ Sertifikasi'],
-                        ['icon'=>'fa-lock','color'=>'purple','title'=>'Information Security','desc'=>'Keamanan informasi & manajemen data','count'=>'15+ Sertifikasi'],
-                    ];
+                $cls = match($c['color']){
+                    'blue'   => ['icon'=>'text-blue-600','pill'=>'bg-blue-100','text'=>'text-blue-600','hover'=>'hover:text-blue-700'],
+                    'green'  => ['icon'=>'text-green-600','pill'=>'bg-green-100','text'=>'text-green-600','hover'=>'hover:text-green-700'],
+                    'orange' => ['icon'=>'text-orange-600','pill'=>'bg-orange-100','text'=>'text-orange-600','hover'=>'hover:text-orange-700'],
+                    'slate'  => ['icon'=>'text-slate-600','pill'=>'bg-slate-100','text'=>'text-slate-600','hover'=>'hover:text-slate-700'],
+                    'red'    => ['icon'=>'text-red-600','pill'=>'bg-red-100','text'=>'text-red-600','hover'=>'hover:text-red-700'],
+                    default  => ['icon'=>'text-slate-600','pill'=>'bg-slate-100','text'=>'text-slate-600','hover'=>'hover:text-slate-700'],
+                };
                 @endphp
-                @foreach($cats as $c)
-                <div class="category-card bg-white p-8 rounded-xl shadow-lg hover-lift text-center">
-                    <div class="w-16 h-16 bg-{{ $c['color'] }}-100 rounded-full grid place-items-center mx-auto mb-6">
-                        <i class="fas {{ $c['icon'] }} text-{{ $c['color'] }}-600 text-2xl"></i>
-                    </div>
-                    <h3 class="text-xl font-semibold text-gray-800 mb-3">{{ $c['title'] }}</h3>
-                    <p class="text-gray-600 mb-5">{{ $c['desc'] }}</p>
-                    <div class="text-2xl font-bold text-{{ $c['color'] }}-600 mb-4">{{ $c['count'] }}</div>
-                    <button class="text-{{ $c['color'] }}-600 font-semibold hover:text-{{ $c['color'] }}-700 transition-colors">
-                        Lihat Semua <i class="fas fa-arrow-right ml-1"></i>
-                    </button>
+
+                <div class="bg-white p-8 rounded-xl shadow-lg transition hover:shadow-xl hover:-translate-y-1 text-center">
+                <div class="w-16 h-16 {{ $cls['pill'] }} rounded-full grid place-items-center mx-auto mb-6">
+                    <i class="fas {{ $c['icon'] }} {{ $cls['icon'] }} text-2xl"></i>
                 </div>
-                @endforeach
+                <h3 class="text-xl font-semibold text-gray-800 mb-3">{{ $c['title'] }}</h3>
+                <p class="text-gray-600 mb-5">{{ $c['desc'] }}</p>
+                <div class="text-2xl font-bold {{ $cls['text'] }} mb-4">
+                    {{ number_format($c['count']) }} Sertifikasi
+                </div>
+                <a href="{{ $c['link'] }}" class="inline-flex items-center font-semibold {{ $cls['text'] }} {{ $cls['hover'] }}">
+                    Lihat Semua <i class="fas fa-arrow-right ml-2"></i>
+                </a>
+                </div>
+            @endforeach
             </div>
         </div>
     </section>

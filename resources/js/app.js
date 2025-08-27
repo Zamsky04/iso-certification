@@ -39,11 +39,24 @@ let listCtrl = null, facetCtrl = null;
 
 function buildParams(includeSubs = true) {
   const p = new URLSearchParams();
+
   if (state.q) p.set('q', state.q);
   if (state.category && state.category !== 'all') p.set('category', state.category);
-  if (includeSubs) for (const [k,v] of Object.entries(state.sub)) if (v && v !== 'all') p.set(k, v);
+
+  if (includeSubs) {
+    for (const [k, v] of Object.entries(state.sub)) {
+      if (!v || v === 'all') continue;
+      // 3 gaya populer agar kompatibel dengan berbagai handler di backend:
+      p.set(k, v);
+      p.append(`meta[${k}]`, v);
+      p.append(`meta.${k}`, v);
+      p.append(`metadata[${k}]`, v);
+    }
+  }
+
   return p;
 }
+
 
 async function fetchFacets() {
   if (facetCtrl) facetCtrl.abort();
@@ -83,79 +96,98 @@ async function fetchList() {
 
 
 /* ==== UI builders ==== */
-function buildCategories(categories=[]) {
-  const el = $('#catWrap'); if (!el) return
-  const cats = ['Semua', ...categories]
-  el.innerHTML = `
-    <div class="flex flex-wrap items-center gap-3">
-      <div class="flex items-center gap-2">
-        <label for="catSelect" class="text-xs text-slate-500">Kategori</label>
-        <select id="catSelect" class="rounded-md border border-slate-300 px-3 py-2">
-          ${cats.map(c => {
-            const val = (c === 'Semua') ? 'all' : c
-            return `<option value="${esc(val)}"${state.category===val?' selected':''}>${esc(c)}</option>`
-          }).join('')}
-        </select>
-      </div>
+function buildPrimaryFilters(categories = []) {
+  const catWrap = $('#catWrap');
+  if (catWrap) {
+    const cats = ['Semua', ...categories];
+    // Hanya render select kategori
+    catWrap.innerHTML = `
+      <select id="catSelect" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
+        ${cats.map(c => {
+          const val = (c === 'Semua') ? 'all' : c;
+          return `<option value="${esc(val)}"${state.category === val ? ' selected' : ''}>${esc(c)}</option>`;
+        }).join('')}
+      </select>
+    `;
+  }
 
-      <div class="flex items-center gap-2">
-        <label for="perPageSelect" class="text-xs text-slate-500">Per halaman</label>
-        <select id="perPageSelect" class="rounded-md border border-slate-300 px-2 py-2">
-          ${[6,9,12,18,24].map(n => `<option value="${n}"${state.perPage===n?' selected':''}>${n}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-  `
+  const perPageWrap = $('#perPageWrap');
+  if (perPageWrap) {
+    // Render select "Per Halaman"
+    perPageWrap.innerHTML = `
+      <label for="perPageSelect" class="text-xs text-slate-500">Per halaman:</label>
+      <select id="perPageSelect" class="rounded-md border border-slate-300 px-2 py-1 text-sm">
+        ${[6, 12, 18, 24].map(n => `<option value="${n}"${state.perPage === n ? ' selected' : ''}>${n}</option>`).join('')}
+      </select>
+    `;
+  }
 }
 
 function buildSubFilters(facets) {
-  const wrap = $('#subWrap'); if (!wrap) return
-  const groups = facets?.metadata_facets || {}
+  const wrap = $('#subWrap'); if (!wrap) return;
+  const groups = facets?.metadata_facets || {};
 
-  // Urutkan key: prioritas dulu, lalu alfabet
-  const keys = Object.keys(groups).sort((a,b)=>{
-    const pri = {'nama-akreditasi':-2, 'jenis-iso':-1}
-    return (pri[a]??0)-(pri[b]??0) || a.localeCompare(b)
-  })
+  // Kelompokkan filter secara logis (Anda bisa sesuaikan ini)
+  const accordionGroups = {
+    'Informasi Sertifikasi': ['nama-akreditasi', 'jenis-iso'],
+    'Bidang Usaha (BU)': ['bidang', 'bu-besar-pj-teknik', 'bu-besar-pma-teknik', 'bu-kecil-tenaga-teknik', /* ... tambahkan key lain yang relevan */],
+    // Tambahkan grup lain sesuai kebutuhan
+  };
 
-  if (!keys.length) { wrap.innerHTML = ''; return }
+  const allKnownKeys = new Set(Object.values(accordionGroups).flat());
+  const remainingKeys = Object.keys(groups).filter(k => !allKnownKeys.has(k));
 
-  const PRIMARY_N = 3
-  const primary = keys.slice(0, PRIMARY_N)
-  const more    = keys.slice(PRIMARY_N)
-
+  // Fungsi untuk membuat satu select/dropdown
   const makeSelect = (key) => {
-    const label = key.replace(/[-_]/g,' ').replace(/\b\w/g, m=>m.toUpperCase())
-    const current = state.sub[key] ?? 'all'
-    const pairs = groups[key] || [] // array of [val, count]
-    const opts = [`<option value="all"${current==='all'?' selected':''}>Semua</option>`]
-      .concat(pairs.map(([v,c]) => `<option value="${esc(v)}"${current===v?' selected':''}>${esc(v)} (${c})</option>`))
-      .join('')
+    if (!groups[key] || groups[key].length === 0) return ''; // Jangan render jika tidak ada opsi
+    const label = key.replace(/[-_]/g, ' ').replace(/\b\w/g, m => m.toUpperCase());
+    const current = state.sub[key] ?? 'all';
+    const pairs = groups[key] || [];
+    const opts = [`<option value="all"${current === 'all' ? ' selected' : ''}>Semua</option>`]
+      .concat(pairs.map(([v, c]) => `<option value="${esc(v)}"${current === v ? ' selected' : ''}>${esc(v)} (${c})</option>`))
+      .join('');
     return `
-      <div class="flex flex-col gap-1">
+      <div class="space-y-1">
         <label class="text-xs font-semibold text-slate-600" for="sel-${esc(key)}">${esc(label)}</label>
-        <select id="sel-${esc(key)}" class="rounded-md border border-slate-300 px-3 py-2" data-sub="${esc(key)}">
+        <select id="sel-${esc(key)}" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500" data-sub="${esc(key)}">
           ${opts}
         </select>
       </div>
-    `
+    `;
+  };
+
+  // Fungsi untuk membuat satu grup accordion
+  const makeAccordionGroup = (title, keys) => {
+    const content = keys.map(makeSelect).filter(Boolean).join('');
+    if (!content) return ''; // Jangan render accordion jika isinya kosong
+
+    // Cek apakah ada filter aktif di dalam grup ini
+    const isActive = keys.some(k => state.sub[k] && state.sub[k] !== 'all');
+
+    return `
+      <details class="group" ${isActive ? 'open' : ''}>
+        <summary class="flex cursor-pointer list-none items-center justify-between py-2 text-sm font-semibold text-slate-800 hover:text-blue-600">
+          ${esc(title)}
+          <svg class="h-4 w-4 transform transition-transform duration-200 group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </summary>
+        <div class="space-y-3 pb-2">
+          ${content}
+        </div>
+      </details>
+    `;
+  };
+
+  let html = '';
+  for(const [title, keys] of Object.entries(accordionGroups)) {
+      html += makeAccordionGroup(title, keys);
+  }
+  if (remainingKeys.length > 0) {
+      html += makeAccordionGroup('Lainnya', remainingKeys);
   }
 
-  wrap.innerHTML = `
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      ${primary.map(makeSelect).join('')}
-      ${more.length ? `<button id="toggleMoreFilters" class="rounded-md border border-slate-300 px-3 py-2 text-left sm:col-span-2 lg:col-span-3">
-        + Filter lainnya (${more.length})
-      </button>` : ''}
-    </div>
-    ${more.length ? `
-      <div id="moreFilters" class="mt-3 hidden">
-        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          ${more.map(makeSelect).join('')}
-        </div>
-      </div>
-    ` : ''}
-  `
+  wrap.innerHTML = html || '<p class="text-sm text-slate-400">Filter tambahan tidak tersedia.</p>';
 }
 
 function renderResultInfo(countOnPage){
@@ -338,8 +370,32 @@ const debouncedSearch = debounce((v) => {
 function attachEvents(facets){
   // Inisialisasi kategori+sub dari SSR/first load
   const cats = (window.__CATS__ || facets.categories || []);
-  buildCategories(cats);
+  buildPrimaryFilters(cats);
   buildSubFilters(facets);
+
+  const clearBtn = $('#clearAllFilters');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+
+      // 1. Reset state ke nilai default
+      state.q = '';
+      state.category = 'all';
+      state.sub = {};
+      state.page = 1;
+
+      // 2. Update tampilan UI secara manual
+      const searchInput = $('#searchInput');
+      if (searchInput) searchInput.value = '';
+
+      const catSelect = $('#catSelect');
+      if (catSelect) catSelect.value = 'all';
+
+      // 3. Panggil refresh untuk memuat ulang data dari server
+      // Kita butuh facets baru karena semua filter dihapus
+      refreshCombined({ withFacets: true });
+    });
+  }
 
   $('#searchInput')?.addEventListener('input', (e)=>{
     debouncedSearch(e.target.value);
@@ -348,7 +404,7 @@ function attachEvents(facets){
   $('#catWrap')?.addEventListener('change', (e)=>{
     if (e.target.id === 'catSelect') {
       state.category = e.target.value || 'all';
-      state.sub = {};
+    //   state.sub = {};
       state.page = 1;
       refreshCombined({ withFacets: true }); // domain berubah → facets ikut
       return;
@@ -362,13 +418,24 @@ function attachEvents(facets){
     }
   });
 
-  $('#subWrap')?.addEventListener('change', (e)=>{
-    const sel = e.target.closest('select[data-sub]'); if(!sel) return
+  $('#subWrap')?.addEventListener('change', (e) => {
+    const sel = e.target.closest('select[data-sub]');
+    if (!sel) return;
+
     const key = sel.getAttribute('data-sub');
-    state.sub[key] = sel.value || 'all';
-    state.page = 1;
-    refreshCombined({ withFacets: true });
-  });
+    const value = sel.value;
+
+    // Logika yang lebih aman:
+    // Hapus key dari state jika nilainya 'all'
+    if (value && value !== 'all') {
+        state.sub[key] = value;
+    } else {
+        delete state.sub[key];
+    }
+
+    state.page = 1; // Selalu kembali ke halaman 1
+    refreshCombined({ withFacets: true }); // Refresh dengan facets baru
+});
 
   $('#subWrap')?.addEventListener('click', (e)=>{
     const btn = e.target.closest('#toggleMoreFilters'); if (!btn) return
@@ -376,21 +443,70 @@ function attachEvents(facets){
     if (panel) panel.classList.toggle('hidden');
   });
 
-  $('#activeFilters')?.addEventListener('click', (e)=>{
-    const btn=e.target.closest('button[data-clear],#clearAllFilters'); if(!btn) return
-    if (btn.id==='clearAllFilters'){
-      state.q=''; state.category='all'; state.sub={}; state.page=1
-      const s=$('#searchInput'); if(s) s.value=''
-      refreshCombined({ withFacets: true });
-      return;
+  $('#activeFilters')?.addEventListener('click', (e) => {
+    // Temukan tombol yang diklik (baik tombol 'x' atau 'Bersihkan Semua')
+    const btn = e.target.closest('button[data-clear], #clearAllFilters');
+    if (!btn) return; // Keluar jika yang diklik bukan tombol
+
+    e.preventDefault(); // Mencegah aksi default tombol
+
+    let stateTelahBerubah = false;
+
+    // KASUS 1: Tombol "Bersihkan Semua" diklik
+    if (btn.id === 'clearAllFilters') {
+        // Lakukan reset total pada semua state filter
+        state.q = '';
+        state.category = 'all';
+        state.sub = {}; // Kosongkan objek sub-filter
+        state.page = 1;
+
+        const searchInput = $('#searchInput');
+        if (searchInput) searchInput.value = '';
+
+        stateTelahBerubah = true;
+
+    } else {
+        // KASUS 2: Tombol 'x' pada filter individual yang diklik
+        const key = btn.getAttribute('data-clear');
+        if (!key) return;
+
+        if (key === 'q') {
+            if (state.q !== '') {
+                state.q = '';
+                const searchInput = $('#searchInput');
+                if (searchInput) searchInput.value = '';
+                stateTelahBerubah = true;
+            }
+        } else if (key === 'category') {
+            // Saat kategori dihapus, semua sub-filter terkait juga harus bersih
+            if (state.category !== 'all') {
+                state.category = 'all';
+                state.sub = {}; // Logika Anda di sini sudah benar
+                stateTelahBerubah = true;
+            }
+        } else if (key.startsWith('sub:')) {
+            const subKey = key.substring(4); // Ambil nama sub-filter, e.g., 'nama-akreditasi'
+
+            // PERBAIKAN UTAMA: Gunakan 'delete' untuk menghapus properti dari state.
+            // Ini memastikan state benar-benar bersih.
+            if (state.sub.hasOwnProperty(subKey)) {
+                delete state.sub[subKey];
+                stateTelahBerubah = true;
+            }
+        }
     }
-    const key=btn.getAttribute('data-clear');
-    if(key==='q'){ state.q=''; const s=$('#searchInput'); if(s) s.value='' }
-    else if(key==='category'){ state.category='all'; state.sub={} }
-    else if(key.startsWith('sub:')){ const k=key.split(':')[1]; state.sub[k]='all' }
-    state.page=1;
-    refreshCombined({ withFacets: true });
-  });
+
+    // Lakukan aksi ini HANYA JIKA state benar-benar berubah
+    if (stateTelahBerubah) {
+        state.page = 1; // Selalu kembali ke halaman 1 saat filter berubah
+
+        // PENTING: Simpan state yang sudah bersih ke localStorage SECARA EKSPLISIT
+        persist();
+
+        // Muat ulang data dan UI berdasarkan state yang baru
+        refreshCombined({ withFacets: true });
+    }
+});
 
   $('#pagination')?.addEventListener('click',(e)=>{
     const b=e.target.closest('button[data-page]'); if(!b) return
@@ -420,6 +536,15 @@ function attachEvents(facets){
       if (e.target.closest('a')) mnav.classList.add('hidden')
     })
   }
+
+    $('#perPageWrap')?.addEventListener('change', (e) => {
+        if (e.target.id === 'perPageSelect') {
+        const n = parseInt(e.target.value, 10);
+        if (!isNaN(n)) state.perPage = n;
+        state.page = 1;
+        refreshCombined({ withFacets: false });
+        }
+    });
 }
 
 /* ==== Boot ==== */
