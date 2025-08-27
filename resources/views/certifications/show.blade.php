@@ -3,7 +3,6 @@
         <link rel="canonical" href="{{ url()->current() }}">
         <meta property="og:title" content="{{ $service->title }}">
         <meta property="og:description" content="{{ $description }}">
-        @if($service->image_url)<meta property="og:image" content="{{ $service->image_url }}">@endif
     @endpush>
 
     <!-- HERO -->
