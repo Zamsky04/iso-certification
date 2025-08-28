@@ -19,19 +19,40 @@ const state = {
   lastPage: 1,
 }
 const LS_KEY = 'iso.db.filters.v1'
+const SCHEMA  = 2; // bump kalau struktur state berubah
+const DEFAULT = { q:'', category:'all', sub:{}, page:1, perPage:12, total:0, lastPage:1 };
 
-function persist(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)) }catch{} }
-function hydrate(){
+function persist() {
   try {
-    const raw = localStorage.getItem(LS_KEY); if(!raw) return
-    const saved = JSON.parse(raw)
-    state.q = saved.q ?? ''
-    state.category = saved.category ?? 'all'
-    state.sub = saved.sub ?? {}
-    state.page = saved.page ?? 1
-    state.perPage = saved.perPage ?? 12
-    const s = $('#searchInput'); if (s) s.value = state.q
-  }catch{}
+    const toSave = { ...state, _schema: SCHEMA };
+    localStorage.setItem(LS_KEY, JSON.stringify(toSave));
+  } catch {}
+}
+function hydrate() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return Object.assign(state, DEFAULT);
+
+    const saved = JSON.parse(raw);
+
+    // jika schema lama / korup -> reset default
+    if (!saved || saved._schema !== SCHEMA) {
+      Object.assign(state, DEFAULT);
+      persist();
+      return;
+    }
+
+    // isi state dengan fallback aman
+    state.q        = typeof saved.q === 'string' ? saved.q : '';
+    state.category = saved.category || 'all';
+    state.sub      = saved.sub && typeof saved.sub === 'object' ? saved.sub : {};
+    state.page     = Number.isInteger(saved.page) ? saved.page : 1;
+    state.perPage  = Number.isInteger(saved.perPage) ? saved.perPage : 12;
+
+    const s = $('#searchInput'); if (s) s.value = state.q;
+  } catch {
+    Object.assign(state, DEFAULT);
+  }
 }
 
 /* ==== API (with cancellation) ==== */
@@ -43,14 +64,12 @@ function buildParams(includeSubs = true) {
   if (state.q) p.set('q', state.q);
   if (state.category && state.category !== 'all') p.set('category', state.category);
 
+  // Hanya kirim parameter meta dalam format meta[key]=value
   if (includeSubs) {
     for (const [k, v] of Object.entries(state.sub)) {
-      if (!v || v === 'all') continue;
-      // 3 gaya populer agar kompatibel dengan berbagai handler di backend:
-      p.set(k, v);
-      p.append(`meta[${k}]`, v);
-      p.append(`meta.${k}`, v);
-      p.append(`metadata[${k}]`, v);
+      if (v && v !== 'all') {
+        p.set(`meta[${k}]`, v);
+      }
     }
   }
 
@@ -61,17 +80,28 @@ function buildParams(includeSubs = true) {
 async function fetchFacets() {
   if (facetCtrl) facetCtrl.abort();
   facetCtrl = new AbortController();
+
   const r = await fetch('/api/services/facets?' + buildParams().toString(), {
     headers: { 'Accept': 'application/json' },
     signal: facetCtrl.signal,
   });
-  if (!r.ok) throw new Error('Gagal memuat facets');
+
+  if (!r.ok) {
+    // auto-recovery untuk state rusak
+    if (r.status === 422 || r.status >= 500) {
+      localStorage.removeItem(LS_KEY);
+      location.reload();
+      return; // stop
+    }
+    throw new Error('Gagal memuat facets');
+  }
   return r.json();
 }
 
 async function fetchList() {
   if (listCtrl) listCtrl.abort();
   listCtrl = new AbortController();
+
   const p = buildParams();
   p.set('page', String(state.page));
   p.set('per_page', String(state.perPage));
@@ -80,19 +110,26 @@ async function fetchList() {
     headers: { 'Accept': 'application/json' },
     signal: listCtrl.signal,
   });
-  if (!r.ok) throw new Error('Gagal memuat data');
-  const json = await r.json();
 
-  // Ambil total terfilter; fallback aman
+  if (!r.ok) {
+    if (r.status === 422 || r.status >= 500) {
+      localStorage.removeItem(LS_KEY);
+      location.reload();
+      return;
+    }
+    throw new Error('Gagal memuat data');
+  }
+
+  const json = await r.json();
   const total = json?.meta?.filtered_total ?? json?.meta?.total ?? json?.total ?? 0;
   state.total = Number.isFinite(total) ? total : 0;
 
-  // Hitung lastPage secara deterministik dari total & perPage
   const per = Math.max(1, state.perPage || 12);
   state.lastPage = Math.max(1, Math.ceil(state.total / per));
 
   return json.data ?? [];
 }
+
 
 
 /* ==== UI builders ==== */
@@ -337,19 +374,23 @@ async function refreshCombined({ withFacets = true } = {}) {
   const cur = ++seq;
 
   const grid = $('#certificationGrid');
-  if (grid) grid.innerHTML = '<div class="col-span-full animate-pulse text-slate-400">Memuat…</div>';
+  // **MODIFIKASI DIMULAI DI SINI**
+  const pagination = $('#pagination');
+
+  if (grid) grid.classList.add('filtering-loading');
+  if (pagination) pagination.classList.add('filtering-loading');
 
   try {
     const tasks = [fetchList()];
     if (withFacets) tasks.push(fetchFacets());
     const [items, facets] = await Promise.all(tasks);
 
-    if (cur !== seq) return; // ada refresh yang lebih baru
+    if (cur !== seq) return;
 
     if (withFacets && facets) buildSubFilters(facets);
     renderGrid(items);
     renderPagination();
-    normalizePerPageSelect();
+    // normalizePerPageSelect();
     renderResultInfo(items.length);
     renderActive();
     persist();
@@ -357,6 +398,11 @@ async function refreshCombined({ withFacets = true } = {}) {
     if (e.name === 'AbortError') return;
     console.error(e);
     if (grid) grid.innerHTML = `<div class="col-span-full text-center text-red-600">${esc(e.message||'Gagal memuat')}</div>`;
+  } finally {
+    if (cur === seq) {
+        if (grid) grid.classList.remove('filtering-loading');
+        if (pagination) pagination.classList.remove('filtering-loading');
+    }
   }
 }
 
@@ -378,21 +424,18 @@ function attachEvents(facets){
     clearBtn.addEventListener('click', (e) => {
       e.preventDefault();
 
-      // 1. Reset state ke nilai default
       state.q = '';
       state.category = 'all';
       state.sub = {};
       state.page = 1;
 
-      // 2. Update tampilan UI secara manual
       const searchInput = $('#searchInput');
       if (searchInput) searchInput.value = '';
 
       const catSelect = $('#catSelect');
       if (catSelect) catSelect.value = 'all';
 
-      // 3. Panggil refresh untuk memuat ulang data dari server
-      // Kita butuh facets baru karena semua filter dihapus
+      localStorage.removeItem(LS_KEY);
       refreshCombined({ withFacets: true });
     });
   }

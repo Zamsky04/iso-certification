@@ -8,22 +8,43 @@ use App\Services\ServiceCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 class ServiceController extends Controller
 {
+    private function extractMetaFromRequest(Request $req): array
+    {
+        $meta = [];
+        $input = $req->query('meta', []); // Hanya ambil dari query parameter 'meta'
+
+        if (is_array($input)) {
+            foreach ($input as $key => $value) {
+                // Pastikan key dan value adalah string dan tidak kosong
+                if (is_string($key) && is_string($value)) {
+                    $v = trim($value);
+                    // Hanya proses jika nilainya valid dan bukan 'all'
+                    if ($v !== '' && strtolower($v) !== 'all') {
+                        $meta[$key] = $v;
+                    }
+                }
+            }
+        }
+
+        return $meta;
+    }
     /** Halaman utama (SEO + SSR page-1) */
     public function page(ServiceFilterRequest $req)
     {
         $perPage = (int)($req->validated()['per_page'] ?? 12);
         $q       = $req->validated()['q'] ?? '';
         $cat     = $req->validated()['category'] ?? 'all';
-        $meta = collect($req->safe()->except(['q','category','page','per_page']))->toArray();
+        $meta = $this->extractMetaFromRequest($req);
 
 
         $base = Service::query()
             ->when(true, fn($q2) => $q2->orderByDesc('featured')->orderBy('title'));
 
-        $paginated = $base->clone()
+        $paginated = (clone $base)
             ->search($q)->category($cat)->metaFilters($meta)
             ->paginate($perPage)->withQueryString();
 
@@ -49,7 +70,7 @@ class ServiceController extends Controller
     $params  = $req->validated();
     $q       = $params['q'] ?? '';
     $cat     = $params['category'] ?? 'all';
-    $meta    = collect($req->safe())->except(['q','category','page','per_page','_token'])->toArray();
+    $meta = $this->extractMetaFromRequest($req);
 
     $base = Service::query()
         ->search($q)
@@ -147,7 +168,7 @@ class ServiceController extends Controller
         $cat     = $params['category'] ?? 'all';
         $perPage = (int)($params['per_page'] ?? 12);
 
-        $meta = collect($req->safe()->except(['q','category','page','per_page']))->toArray();
+        $meta = $this->extractMetaFromRequest($req);
 
 
         $p = Service::query()
